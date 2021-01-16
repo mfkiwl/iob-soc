@@ -121,24 +121,27 @@ module system
    // INSTRUCTION BUS
    split #(
 `ifdef RUN_DDR_USE_SRAM
-           .N_SLAVES(2)
+           .N_SLAVES(2),
 `else
-           .N_SLAVES(1)
+           .N_SLAVES(1),
 `endif
+           .P_SLAVES(`E_BIT)
            )
    ibus_split
      (
+      .clk    ( clk                              ),
+      .rst    ( reset                            ),
       // master interface
-      .m_req  (cpu_i_req),
-      .m_resp (cpu_i_resp),
+      .m_req  ( cpu_i_req                        ),
+      .m_resp ( cpu_i_resp                       ),
       
       // slaves interface
 `ifdef RUN_DDR_USE_SRAM
-      .s_req ({ext_mem_i_req, int_mem_i_req}),
-      .s_resp ({ext_mem_i_resp, int_mem_i_resp})
+      .s_req  ( {ext_mem_i_req, int_mem_i_req}   ),
+      .s_resp ( {ext_mem_i_resp, int_mem_i_resp} )
 `else
-      .s_req (int_mem_i_req),
-      .s_resp (int_mem_i_resp)
+      .s_req  (  int_mem_i_req                   ),
+      .s_resp ( int_mem_i_resp                   )
 `endif
       );
 
@@ -162,26 +165,28 @@ module system
    split 
      #(
 `ifdef USE_DDR
-       .N_SLAVES(3),
-       .P_SLAVES(`E_BIT)
+       .N_SLAVES(3), //E,P,I
 `else
-       .N_SLAVES(2),
-       .P_SLAVES(`P_BIT)
+       .N_SLAVES(2),//P,I
 `endif
+       .P_SLAVES(`E_BIT)
        )
    dbus_split    
      (
+      .clk    ( clk                      ),
+      .rst    ( reset                    ),
+
       // master interface
-      .m_req  (cpu_d_req),
-      .m_resp (cpu_d_resp),
+      .m_req  ( cpu_d_req                                  ),
+      .m_resp ( cpu_d_resp                                 ),
 
       // slaves interface
 `ifdef USE_DDR
-      .s_req ({ext_mem_d_req, pbus_req, int_mem_d_req}),
-      .s_resp({ext_mem_d_resp, pbus_resp, int_mem_d_resp})
+      .s_req  ( {ext_mem_d_req, pbus_req, int_mem_d_req}   ),
+      .s_resp ({ext_mem_d_resp, pbus_resp, int_mem_d_resp} )
 `else
-      .s_req ({pbus_req, int_mem_d_req}),
-      .s_resp({pbus_resp, int_mem_d_resp})
+      .s_req  ({pbus_req, int_mem_d_req}                   ),
+      .s_resp ({pbus_resp, int_mem_d_resp}                 )
 `endif
       );
    
@@ -201,13 +206,15 @@ module system
        )
    pbus_split
      (
+      .clk    ( clk                      ),
+      .rst    ( reset                    ),
       // master interface
-      .m_req(pbus_req),
-      .m_resp(pbus_resp),
+      .m_req   ( pbus_req    ),
+      .m_resp  ( pbus_resp   ),
       
       // slaves interface
-      .s_req(slaves_req),
-      .s_resp(slaves_resp)
+      .s_req   ( slaves_req  ),
+      .s_resp  ( slaves_resp )
       );
 
    
@@ -237,8 +244,8 @@ module system
    //
    ext_mem ext_mem0 
      (
-      .clk                  (clk ),
-      .rst                  (reset),
+      .clk                  (clk),
+      .rst                  (cpu_reset),
       
  `ifdef RUN_DDR_USE_SRAM
       // instruction bus
@@ -246,7 +253,7 @@ module system
       .i_resp               (ext_mem_i_resp),
  `endif
       //data bus
-      .d_req                ({ext_mem_d_req[`valid(0)], ext_mem_d_req[`address(0, `CACHE_ADDR_W+1)-2], ext_mem_d_req[`write(0)]}),
+      .d_req                ({ext_mem_d_req[`valid(0)], ext_mem_d_req[`address(0, `DCACHE_ADDR_W+1)-2], ext_mem_d_req[`write(0)]}),
       .d_resp               (ext_mem_d_resp),
 
       //AXI INTERFACE 
