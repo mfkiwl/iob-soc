@@ -1,128 +1,75 @@
-ROOT_DIR:=.
-include ./system.mk
+CORE := iob_soc
 
-#
-# SIMULATE RTL
-#
+SIMULATOR ?= icarus
+SYNTHESIZER ?= yosys
+BOARD ?= CYCLONEV-GT-DK
 
-sim:
-	make -C $(SIM_DIR) all
+DISABLE_LINT:=1
 
-sim-test:
-	make -C $(SIM_DIR) test
+include submodules/LIB/setup.mk
+
+INIT_MEM ?= 1
+USE_EXTMEM ?= 0
 
 
-sim-clean:
-	make -C $(SIM_DIR) clean clean-testlog
+ifeq ($(INIT_MEM),1)
+SETUP_ARGS += INIT_MEM
+endif
 
-#
-# EMULATE ON PC
-#
+ifeq ($(USE_EXTMEM),1)
+SETUP_ARGS += USE_EXTMEM
+endif
 
-pc-emul:
-	make -C $(PC_DIR) all
+setup:
+	nix-shell --run 'make build-setup SETUP_ARGS="$(SETUP_ARGS)"'
+
+pc-emul-run:
+	nix-shell --run 'make clean setup && make -C ../$(CORE)_V*/ pc-emul-run'
 
 pc-emul-test:
-	make -C $(PC_DIR) test
+	nix-shell --run 'make clean setup && make -C ../$(CORE)_V*/ pc-emul-run'
 
-pc-emul-clean:
-	make -C $(PC_DIR) clean
+sim-run:
+	nix-shell --run 'make clean setup INIT_MEM=$(INIT_MEM) USE_EXTMEM=$(USE_EXTMEM) && make -C ../$(CORE)_V*/ fw-build'
+	nix-shell --run 'make clean setup INIT_MEM=$(INIT_MEM) USE_EXTMEM=$(USE_EXTMEM) && make -C ../$(CORE)_V*/ sim-run SIMULATOR=$(SIMULATOR)'
 
-#
-# BUILD, LOAD AND RUN ON FPGA BOARD
-#
-
-fpga-build:
-	make -C $(BOARD_DIR) build
+sim-test:
+	nix-shell --run 'make clean setup INIT_MEM=1 USE_EXTMEM=0 && make -C ../$(CORE)_V*/ sim-run SIMULATOR=icarus'
+	nix-shell --run 'make clean setup INIT_MEM=0 USE_EXTMEM=1 && make -C ../$(CORE)_V*/ sim-run SIMULATOR=verilator'
+	nix-shell --run 'make clean setup INIT_MEM=1 USE_EXTMEM=0 && make -C ../$(CORE)_V*/ sim-run SIMULATOR=verilator'
 
 fpga-run:
-	make -C $(BOARD_DIR) all TEST_LOG="$(TEST_LOG)"
+	nix-shell --run 'make clean setup INIT_MEM=$(INIT_MEM) USE_EXTMEM=$(USE_EXTMEM) && make -C ../$(CORE)_V*/ fpga-fw-build BOARD=$(BOARD)'
+	make -C ../$(CORE)_V*/ fpga-run BOARD=$(BOARD)
 
 fpga-test:
-	make -C $(BOARD_DIR) test
+	make clean setup fpga-run BOARD=CYCLONEV-GT-DK INIT_MEM=1 USE_EXTMEM=0 
+	make clean setup fpga-run BOARD=CYCLONEV-GT-DK INIT_MEM=0 USE_EXTMEM=1 
+	make clean setup fpga-run BOARD=AES-KU040-DB-G INIT_MEM=1 USE_EXTMEM=0 
+	make clean setup fpga-run BOARD=AES-KU040-DB-G INIT_MEM=0 USE_EXTMEM=1 
 
-fpga-clean:
-	make -C $(BOARD_DIR) clean clean-testlog
+syn-build: clean
+	nix-shell --run 'make setup && make -C ../$(CORE)_V*/ syn-build SYNTHESIZER=$(SYNTHESIZER)'
 
-
-#
-# SYNTHESIZE AND SIMULATE ASIC
-#
-
-asic-synt:
-	make -C $(ASIC_DIR) all
-
-asic-sim-post-synt:
-	make -C $(ASIC_DIR) all
-
-#
-# COMPILE DOCUMENTS
-#
 doc-build:
-	make -C $(DOC_DIR) all
+	nix-shell --run 'make clean setup && make -C ../$(CORE)_V*/ doc-build'
 
 doc-test:
-	make -C $(DOC_DIR) test
-
-doc-clean:
-	make -C $(DOC_DIR) clean
+	nix-shell --run 'make clean setup && make -C ../$(CORE)_V*/ doc-test'
 
 
-#
-# TEST ON SIMULATORS AND BOARDS
-#
-
-test-pc-emul: pc-emul-test
-
-test-pc-emul-clean: pc-emul-clean
-
-test-sim:
-	make sim-test SIMULATOR=xcelium
-	make sim-test SIMULATOR=icarus
-
-test-sim-clean:
-	make sim-clean SIMULATOR=xcelium
-	make sim-clean SIMULATOR=icarus
-
-test-fpga:
-	make fpga-test BOARD=CYCLONEV-GT-DK
-	make fpga-test BOARD=AES-KU040-DB-G
-
-test-fpga-clean:
-	make fpga-clean BOARD=CYCLONEV-GT-DK
-	make fpga-clean BOARD=AES-KU040-DB-G
-
-test-doc:
-	make doc-test DOC=pb
-	make doc-test DOC=presentation
-
-test-doc-clean:
-	make doc-clean DOC=pb
-	make doc-clean DOC=presentation
-
-test: test-clean test-pc-emul test-sim test-fpga test-doc
-
-test-clean: test-pc-emul-clean test-sim-clean test-fpga-clean test-doc-clean
+test-all: pc-emul-test sim-test fpga-test doc-test
 
 
-#generic clean 
-clean: 
-	make pc-emul-clean
-	make sim-clean
-	make fpga-clean
-	make doc-clean
 
-clean-all: test-clean
+# Install board server and client
+board_server_install:
+	make -C submodules/LIB board_server_install
 
+board_server_uninstall:
+	make -C submodules/LIB board_server_uninstall
 
-.PHONY: pc-emul pc-emul-test pc-emul-clean \
-	sim sim-test sim-clean\
-	fpga-build fpga-run fpga-test fpga-clean\
-	asic-synt asic-sim-post-synt\
-	doc-build doc-test  doc-clean clean\
-	test-pc-emul test-pc-emul-clean\
-	test-sim test-sim-clean\
-	test-fpga test-fpga-clean\
-	test-doc test-doc-clean\
-	test test-clean
-	clean clean-all
+board_server_status:
+	systemctl status board_server
+
+.PHONY: setup sim-test fpga-test doc-test test-all board_server_install board_server_uninstall board_server_status

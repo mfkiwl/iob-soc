@@ -1,0 +1,130 @@
+name: CI
+
+# Set default shell as interactive (source ~/.bashrc)
+defaults:
+  run:
+    shell: bash -ieo pipefail {0}
+
+# Run only one instance of this workflow at a time
+# cancel-in-progress: stop running workflow and run latest instead
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: '*'
+  pull_request:
+    branches: '*'
+  # Allow manual workflow runs
+  workflow_dispatch:
+
+jobs:
+
+  pc-emul:
+    runs-on: self-hosted
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: run test
+        run: make pc-emul-test
+
+  simulation:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    # run even if previous job failed
+    if: ${{ !cancelled() }}
+    needs: [ pc-emul ]
+  
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: run test
+        run: nix-shell --run "make sim-test"
+  
+  cyclonev:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    if: ${{ !cancelled() }}
+    needs: [ simulation ]
+  
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: init mem and no ext mem
+        run: make fpga-run BOARD=CYCLONEV-GT-DK INIT_MEM=1 USE_EXTMEM=0
+      - name: no init mem and ext mem
+        run: make fpga-run BOARD=CYCLONEV-GT-DK INIT_MEM=0 USE_EXTMEM=1
+  
+  ku040:
+    runs-on: self-hosted
+    timeout-minutes: 90
+    if: ${{ !cancelled() }}
+    needs: [ simulation ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: init mem and no ext mem
+        run: make fpga-run BOARD=AES-KU040-DB-G INIT_MEM=1 USE_EXTMEM=0
+      - name: no init mem and ext mem
+        run: make fpga-run BOARD=AES-KU040-DB-G INIT_MEM=0 USE_EXTMEM=1
+
+  lib:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    if: ${{ !cancelled() }}
+    needs: [ cyclonev ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: run LIB test
+        run: nix-shell --run "cd submodules/LIB; ./scripts/test.sh test"
+
+  uart:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    if: ${{ !cancelled() }}
+    needs: [ lib ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: run uart test
+        run: make -C submodules/UART test
+
+  cache:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    if: ${{ !cancelled() }}
+    needs: [ cyclonev ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: run simulation test
+        run: make -C submodules/CACHE sim-test
+      - name: run fpga test
+        run: make -C submodules/CACHE fpga-test
+  doc:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    if: ${{ !cancelled() }}
+    needs: [ cyclonev ]
+  
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: doc test
+        run: nix-shell --run "make -C ../iob_soc_V* doc-test"
